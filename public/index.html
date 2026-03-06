@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>BINGO — Multiplayer</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet"/>
+<script src="/socket.io/socket.io.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:'DM Sans',sans-serif;background:#0a0e1a;color:#e2e8f0;
+  min-height:100vh;overflow-x:hidden;
+}
+body::before{
+  content:'';position:fixed;inset:0;
+  background-image:linear-gradient(rgba(0,255,136,.025) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(0,255,136,.025) 1px,transparent 1px);
+  background-size:40px 40px;pointer-events:none;z-index:0;
+}
+
+/* ─── SCREENS ────────────────────────────────────────────────── */
+.screen{display:none;position:relative;z-index:1}
+.screen.active{display:flex}
+
+/* ─── TYPOGRAPHY ─────────────────────────────────────────────── */
+.t-hero{font-family:'Syne',sans-serif;font-weight:800;line-height:1}
+.t-title{font-family:'Syne',sans-serif;font-weight:700}
+.t-mono{font-family:'Space Mono',monospace}
+.t-label{font-family:'DM Sans',sans-serif;font-weight:600;font-size:.7rem;
+  letter-spacing:.18em;text-transform:uppercase;color:#94a3b8}
+
+/* ─── TOKENS ──────────────────────────────────────────────────── */
+:root{
+  --green:#00ff88;--green-dim:rgba(0,255,136,.12);
+  --blue:#38bdf8;--blue-dim:rgba(56,189,248,.12);
+  --red:#ff6b6b;--amber:#fbbf24;
+}
+
+/* ─── CARD PANEL ──────────────────────────────────────────────── */
+.card{
+  background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);
+  border-radius:16px;backdrop-filter:blur(10px);
+}
+.card-green{border-color:rgba(0,255,136,.25)}
+.card-blue{border-color:rgba(56,189,248,.22)}
+.card-amber{border-color:rgba(251,191,36,.3)}
+
+/* ─── BUTTONS ─────────────────────────────────────────────────── */
+button{cursor:pointer;border:none;font-family:'DM Sans',sans-serif;
+  font-weight:600;transition:all .15s;border-radius:10px}
+.btn-primary{
+  background:var(--green);color:#0a0e1a;
+  padding:13px 28px;font-size:.95rem;font-weight:700;
+}
+.btn-primary:hover:not(:disabled){background:#1aff96;
+  box-shadow:0 0 28px rgba(0,255,136,.4);transform:translateY(-1px)}
+.btn-primary:active:not(:disabled){transform:translateY(0)}
+.btn-primary:disabled{opacity:.3;cursor:not-allowed}
+.btn-blue{background:var(--blue);color:#0a0e1a;padding:13px 28px;font-size:.95rem;font-weight:700}
+.btn-blue:hover:not(:disabled){background:#60cbf8;box-shadow:0 0 28px rgba(56,189,248,.4);transform:translateY(-1px)}
+.btn-outline{
+  background:transparent;color:var(--green);
+  border:1.5px solid rgba(0,255,136,.35);padding:11px 24px;font-size:.88rem;
+}
+.btn-outline:hover{background:var(--green-dim);border-color:var(--green)}
+.btn-sm{padding:8px 16px;font-size:.8rem;border-radius:8px}
+.btn-ghost{background:rgba(255,255,255,.05);color:#94a3b8;
+  border:1px solid rgba(255,255,255,.1);padding:11px 24px;font-size:.88rem}
+.btn-ghost:hover{background:rgba(255,255,255,.09);color:#e2e8f0}
+
+/* ─── INPUT ───────────────────────────────────────────────────── */
+.code-input{
+  background:#0d1220;border:2px solid rgba(255,255,255,.12);
+  border-radius:12px;padding:14px 18px;color:var(--green);
+  font-family:'Space Mono',monospace;font-size:2rem;
+  letter-spacing:.55em;text-align:center;outline:none;width:100%;
+  transition:border-color .2s,box-shadow .2s;
+}
+.code-input:focus{border-color:var(--green);box-shadow:0 0 0 3px rgba(0,255,136,.1)}
+.code-input::placeholder{color:rgba(255,255,255,.1);letter-spacing:.3em}
+
+/* ─── TOAST ───────────────────────────────────────────────────── */
+#toast{
+  position:fixed;top:18px;left:50%;
+  transform:translateX(-50%) translateY(-70px);
+  background:#111827;border:1px solid rgba(0,255,136,.4);
+  border-radius:10px;padding:10px 22px;font-size:.84rem;color:var(--green);
+  z-index:9999;transition:transform .28s cubic-bezier(.34,1.56,.64,1),opacity .28s;
+  opacity:0;white-space:nowrap;font-weight:600;
+}
+#toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+#toast.err{border-color:rgba(255,107,107,.4);color:var(--red)}
+#toast.info{border-color:rgba(251,191,36,.4);color:var(--amber)}
+
+/* ─── PROGRESS ────────────────────────────────────────────────── */
+.prog-track{height:5px;border-radius:3px;background:rgba(255,255,255,.07);overflow:hidden}
+.prog-fill{height:100%;border-radius:3px;
+  background:linear-gradient(90deg,var(--green),#00d4ff);transition:width .35s ease}
+
+/* ─── PILL ────────────────────────────────────────────────────── */
+.pill{display:inline-flex;align-items:center;gap:6px;
+  background:rgba(0,255,136,.1);border:1px solid rgba(0,255,136,.25);
+  border-radius:99px;padding:5px 12px;font-size:.75rem;font-weight:600;color:var(--green)}
+.pill-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:blink 1.8s infinite}
+.pill.wait{background:rgba(251,191,36,.1);border-color:rgba(251,191,36,.3);color:var(--amber)}
+.pill.wait .pill-dot{background:var(--amber)}
+
+/* ─── LOADER ──────────────────────────────────────────────────── */
+.loader{display:flex;gap:8px;align-items:center;justify-content:center}
+.ld{width:8px;height:8px;border-radius:50%;background:var(--green)}
+.ld:nth-child(1){animation:bounce 1.3s 0s ease-in-out infinite}
+.ld:nth-child(2){animation:bounce 1.3s .18s ease-in-out infinite}
+.ld:nth-child(3){animation:bounce 1.3s .36s ease-in-out infinite}
+
+/* ─── CONFETTI ────────────────────────────────────────────────── */
+.confetti-p{position:fixed;top:-20px;pointer-events:none;z-index:9998;
+  border-radius:2px;animation:fall 3.2s ease-in forwards}
+
+/* ─── DIVIDER ─────────────────────────────────────────────────── */
+.or-divider{display:flex;align-items:center;gap:14px;
+  color:rgba(255,255,255,.15);font-size:.78rem}
+.or-divider::before,.or-divider::after{
+  content:'';flex:1;height:1px;background:rgba(255,255,255,.08)}
+
+/* ═══ LOBBY ══════════════════════════════════════════════════════ */
+#scr-lobby{flex-direction:column;align-items:center;justify-content:center;
+  min-height:100vh;padding:24px 20px}
+.lobby-wrap{width:100%;max-width:400px;animation:fadeUp .45s ease}
+
+/* ═══ FULL-CENTER SCREENS ════════════════════════════════════════ */
+#scr-creating,#scr-joining,#scr-waiting,#scr-rematch-wait{
+  flex-direction:column;align-items:center;justify-content:center;
+  min-height:100vh;padding:24px 20px}
+
+/* ═══ SETUP ══════════════════════════════════════════════════════ */
+#scr-setup{flex-direction:column;align-items:center;
+  min-height:100vh;padding:24px 20px 40px;overflow-y:auto}
+.setup-wrap{width:100%;max-width:480px;animation:fadeUp .4s ease}
+
+/* ─── bingo grid ──────────────────────────────────────────────── */
+.bg-letters{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;margin-bottom:4px}
+.bg-letter{text-align:center;font-family:'Syne',sans-serif;font-weight:700;
+  font-size:.85rem;color:var(--green);opacity:.65;padding:4px 0}
+.bg-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:5px}
+.bc{display:flex;align-items:center;justify-content:center;
+  aspect-ratio:1;border-radius:8px;font-weight:700;font-size:.9rem;
+  border:1.5px solid transparent;user-select:none;transition:all .14s}
+.bc.empty{border-color:rgba(255,255,255,.07);color:rgba(255,255,255,.12)}
+.bc.filled{background:rgba(0,255,136,.1);border-color:rgba(0,255,136,.35);
+  color:var(--green);cursor:pointer}
+.bc.filled:hover{background:rgba(255,107,107,.12);border-color:rgba(255,107,107,.4);color:var(--red)}
+.bc.called-me{background:rgba(0,255,136,.18);border-color:var(--green);color:var(--green)}
+.bc.called-opp{background:rgba(56,189,248,.15);border-color:var(--blue);color:var(--blue)}
+.bc.win-cell{animation:winPulse 1.2s ease-in-out infinite;
+  background:rgba(0,255,136,.25);border-color:var(--green);color:var(--green)}
+.bc.normal-play{background:rgba(255,255,255,.04);
+  border-color:rgba(255,255,255,.1);color:#cbd5e1}
+
+/* ─── chips ───────────────────────────────────────────────────── */
+.chip-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.chip{display:flex;align-items:center;justify-content:center;
+  height:40px;border-radius:8px;font-size:.88rem;font-weight:700;
+  cursor:pointer;border:1.5px solid rgba(255,255,255,.1);
+  background:rgba(255,255,255,.04);color:rgba(226,232,240,.5);transition:all .13s}
+.chip:hover{border-color:rgba(0,255,136,.45);color:var(--green);background:rgba(0,255,136,.07)}
+.chip.placed{background:rgba(0,255,136,.14);border-color:rgba(0,255,136,.5);color:var(--green)}
+.chip.placed:hover{background:rgba(255,107,107,.12);border-color:rgba(255,107,107,.4);color:var(--red)}
+
+/* ═══ PLAYING ════════════════════════════════════════════════════ */
+#scr-playing{flex-direction:column;min-height:100vh}
+.play-header{
+  display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;
+  padding:12px 20px;border-bottom:1px solid rgba(255,255,255,.07);
+  flex-shrink:0;background:rgba(10,14,26,.92);
+  backdrop-filter:blur(8px);position:sticky;top:0;z-index:10;
+}
+.play-body{
+  flex:1;display:grid;grid-template-columns:1fr 320px 1fr;
+  gap:14px;padding:14px;align-items:start;overflow-y:auto;
+}
+.side-panel{padding:16px;height:fit-content}
+.center-panel{padding:16px;height:fit-content}
+
+/* ─── draw board cells ────────────────────────────────────────── */
+.dc{display:flex;align-items:center;justify-content:center;
+  aspect-ratio:1;border-radius:8px;font-size:.9rem;font-weight:700;
+  cursor:pointer;border:1.5px solid rgba(255,255,255,.1);
+  background:rgba(255,255,255,.04);color:#94a3b8;transition:all .13s}
+.dc:hover{border-color:var(--green);background:rgba(0,255,136,.09);
+  color:var(--green);transform:scale(1.08)}
+.dc.drawn{background:rgba(0,255,136,.06);border-color:rgba(0,255,136,.2);
+  color:rgba(0,255,136,.3);cursor:default;transform:none!important}
+.dc.last{animation:flash .5s ease}
+
+/* ─── line pips ───────────────────────────────────────────────── */
+.line-tracker{display:flex;align-items:center;gap:6px}
+.line-pip{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;
+  justify-content:center;font-size:.7rem;font-weight:700;font-family:'Space Mono',monospace;
+  border:1.5px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);
+  color:#64748b;transition:all .22s}
+.line-pip.done{background:rgba(0,255,136,.18);border-color:var(--green);color:var(--green)}
+.line-pip.done-opp{background:rgba(56,189,248,.14);border-color:var(--blue);color:var(--blue)}
+
+/* ═══ GAME OVER ══════════════════════════════════════════════════ */
+#scr-gameover{flex-direction:column;align-items:center;justify-content:flex-start;
+  min-height:100vh;padding:32px 20px 48px;overflow-y:auto}
+.go-wrap{width:100%;max-width:860px;text-align:center;animation:popIn .45s ease}
+.go-cards{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:24px 0}
+
+/* play-again status bar */
+.rematch-bar{
+  display:flex;align-items:center;justify-content:center;gap:12px;
+  padding:14px 20px;background:rgba(251,191,36,.07);
+  border:1px solid rgba(251,191,36,.2);border-radius:12px;
+  margin-bottom:16px;font-size:.85rem;color:var(--amber);font-weight:600;
+}
+.rematch-avatar{width:32px;height:32px;border-radius:50%;display:flex;
+  align-items:center;justify-content:center;font-size:.8rem;font-weight:700;
+  border:2px solid;transition:all .25s}
+.rematch-avatar.me{border-color:var(--green);background:rgba(0,255,136,.12);color:var(--green)}
+.rematch-avatar.opp{border-color:rgba(255,255,255,.15);background:rgba(255,255,255,.05);color:#64748b}
+.rematch-avatar.opp.ready{border-color:var(--green);background:rgba(0,255,136,.12);color:var(--green)}
+
+/* ─── ANIMATIONS ──────────────────────────────────────────────── */
+@keyframes fadeUp {from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+@keyframes popIn  {0%{opacity:0;transform:scale(.8)}65%{transform:scale(1.04)}100%{opacity:1;transform:scale(1)}}
+@keyframes blink  {0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes bounce {0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-10px)}}
+@keyframes fall   {0%{transform:translateY(-20px) rotate(0deg);opacity:1}
+  100%{transform:translateY(110vh) rotate(580deg);opacity:0}}
+@keyframes winPulse{
+  0%,100%{box-shadow:0 0 8px var(--green),inset 0 0 6px rgba(0,255,136,.2)}
+  50%{box-shadow:0 0 24px var(--green),0 0 48px rgba(0,255,136,.28),inset 0 0 14px rgba(0,255,136,.3)}}
+@keyframes flash  {0%{transform:scale(1)}38%{transform:scale(1.4);
+  background:var(--green);color:#0a0e1a;border-color:var(--green)}100%{transform:scale(1)}}
+@keyframes glow   {0%,100%{text-shadow:0 0 20px rgba(0,255,136,.55)}
+  50%{text-shadow:0 0 40px rgba(0,255,136,.9),0 0 70px rgba(0,255,136,.35)}}
+@keyframes heroGlow{0%,100%{text-shadow:0 0 28px rgba(0,255,136,.5),0 0 55px rgba(0,255,136,.22)}
+  50%{text-shadow:0 0 55px rgba(0,255,136,.85),0 0 100px rgba(0,255,136,.38)}}
+@keyframes pulseAmber{0%,100%{box-shadow:0 0 0 0 rgba(251,191,36,.3)}
+  50%{box-shadow:0 0 0 6px rgba(251,191,36,0)}}
+
+@media(max-width:820px){
+  .play-body{grid-template-columns:1fr;justify-items:center}
+  .side-panel,.center-panel{width:100%;max-width:340px}
+  .go-cards{grid-template-columns:1fr}
+}
+@media(max-width:500px){
+  .play-header{padding:10px 12px}
+  .play-body{padding:10px;gap:10px}
+}
+</style>
+</head>
+<body>
+<div id="toast"></div>
+
+<!-- ═══ LOBBY ════════════════════════════════════════════════════ -->
+<div id="scr-lobby" class="screen active">
+<div class="lobby-wrap">
+  <div style="text-align:center;margin-bottom:44px">
+    <div style="display:inline-flex;align-items:center;gap:10px;margin-bottom:6px">
+      <div style="width:36px;height:4px;background:var(--green);border-radius:2px"></div>
+      <span class="t-label" style="color:var(--green)">Multiplayer</span>
+      <div style="width:36px;height:4px;background:var(--green);border-radius:2px"></div>
+    </div>
+    <h1 class="t-hero" style="font-size:clamp(5rem,16vw,7.5rem);color:var(--green);animation:heroGlow 2.8s ease-in-out infinite">BINGO</h1>
+    <p class="t-label" style="margin-top:6px;color:#475569">First to complete 3 lines wins</p>
+  </div>
+
+  <div id="lobby-err" style="display:none;background:rgba(255,107,107,.07);border:1px solid rgba(255,107,107,.28);border-radius:10px;padding:10px 16px;margin-bottom:16px;color:var(--red);font-size:.83rem;text-align:center"></div>
+
+  <div class="card" style="padding:26px;margin-bottom:14px">
+    <p class="t-label" style="color:var(--green);margin-bottom:14px">Host a new game</p>
+    <button class="btn-primary" id="btn-create" style="width:100%;padding:14px">Create Room</button>
+  </div>
+
+  <div class="or-divider" style="margin:6px 0">or</div>
+
+  <div class="card" style="padding:26px;margin-top:14px">
+    <p class="t-label" style="color:var(--blue);margin-bottom:14px">Join existing room</p>
+    <input class="code-input" id="join-code" placeholder="XXXXXX" maxlength="6" autocomplete="off" spellcheck="false"/>
+    <button class="btn-primary" id="btn-join" style="width:100%;padding:14px;margin-top:10px;background:var(--blue);color:#0a0e1a" disabled>Join Room →</button>
+  </div>
+
+  <p style="text-align:center;color:#334155;font-size:.73rem;margin-top:20px;line-height:1.7">
+    Both players open this page · one creates · the other joins with the 6-digit code
+  </p>
+</div>
+</div>
+
+<!-- ═══ CREATING ════════════════════════════════════════════════ -->
+<div id="scr-creating" class="screen">
+<div class="card card-green" style="padding:40px 36px;max-width:380px;width:100%;text-align:center;animation:popIn .4s ease">
+  <span class="pill wait" style="margin-bottom:22px;display:inline-flex">
+    <span class="pill-dot"></span>Waiting for Player 2
+  </span>
+  <p class="t-label" style="margin-bottom:10px">Your room code</p>
+  <p id="display-code" class="t-mono" style="font-size:3rem;color:var(--green);letter-spacing:.5em;animation:glow 2.5s ease-in-out infinite"></p>
+  <p style="color:#475569;font-size:.8rem;margin:16px 0 26px;line-height:1.7">
+    Share this code with your opponent<br/>so they can join your room
+  </p>
+  <button class="btn-ghost btn-sm" onclick="resetToLobby()">Cancel</button>
+</div>
+</div>
+
+<!-- ═══ JOINING ══════════════════════════════════════════════════ -->
+<div id="scr-joining" class="screen">
+<div style="text-align:center;animation:fadeUp .35s ease">
+  <p style="color:#64748b;margin-bottom:28px;font-size:.9rem">Connecting to room…</p>
+  <div class="loader"><div class="ld"></div><div class="ld"></div><div class="ld"></div></div>
+  <br/><button class="btn-ghost btn-sm" style="margin-top:24px" onclick="resetToLobby()">Cancel</button>
+</div>
+</div>
+
+<!-- ═══ SETUP ════════════════════════════════════════════════════ -->
+<div id="scr-setup" class="screen">
+<div class="setup-wrap">
+  <div style="text-align:center;margin-bottom:24px">
+    <h2 class="t-title" style="font-size:1.7rem;color:#f1f5f9;margin-bottom:4px">Build Your Card</h2>
+    <p style="color:#64748b;font-size:.82rem">Place all 25 numbers secretly — opponent can't see your layout</p>
+    <div id="setup-opp-status" style="margin-top:10px;font-size:.78rem"></div>
+  </div>
+
+  <div class="card card-green" style="padding:20px;margin-bottom:12px">
+    <div class="bg-letters" id="setup-letters"></div>
+    <div class="bg-grid" id="setup-grid"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;margin-bottom:8px">
+      <span id="placed-txt" style="font-size:.8rem;color:#64748b;font-weight:600">0 / 25 placed</span>
+      <div style="display:flex;gap:8px">
+        <button class="btn-outline btn-sm" onclick="autoFill()">Auto Fill</button>
+        <button class="btn-outline btn-sm" onclick="clearCard()">Clear</button>
+      </div>
+    </div>
+    <div class="prog-track"><div class="prog-fill" id="setup-prog" style="width:0%"></div></div>
+  </div>
+
+  <div class="card" style="padding:16px;margin-bottom:14px">
+    <p class="t-label" style="margin-bottom:12px;text-align:center">Click to place · click placed number to remove</p>
+    <div class="chip-grid" id="chip-palette"></div>
+  </div>
+
+  <button class="btn-primary" id="btn-ready" style="width:100%;padding:14px;font-size:.95rem" disabled onclick="submitCard()">
+    Place all 25 numbers first…
+  </button>
+</div>
+</div>
+
+<!-- ═══ WAITING (card submitted, opp not ready) ═════════════════ -->
+<div id="scr-waiting" class="screen">
+<div style="text-align:center;animation:popIn .4s ease">
+  <div style="font-size:2.8rem;margin-bottom:16px;filter:drop-shadow(0 0 16px var(--green))">✓</div>
+  <h2 class="t-title" style="font-size:1.4rem;color:#f1f5f9;margin-bottom:10px">Card Submitted!</h2>
+  <p style="color:#64748b;margin-bottom:32px;font-size:.88rem">Waiting for your opponent to finish their card…</p>
+  <div class="loader"><div class="ld"></div><div class="ld"></div><div class="ld"></div></div>
+</div>
+</div>
+
+<!-- ═══ REMATCH WAITING ══════════════════════════════════════════ -->
+<div id="scr-rematch-wait" class="screen">
+<div style="text-align:center;animation:fadeUp .35s ease">
+  <div style="font-size:2.4rem;margin-bottom:14px">🔄</div>
+  <h2 class="t-title" style="font-size:1.3rem;color:#f1f5f9;margin-bottom:10px">Waiting for rematch…</h2>
+  <p style="color:#64748b;margin-bottom:32px;font-size:.85rem">Your opponent is deciding — hang tight!</p>
+  <div class="loader"><div class="ld"></div><div class="ld"></div><div class="ld"></div></div>
+</div>
+</div>
+
+<!-- ═══ PLAYING ══════════════════════════════════════════════════ -->
+<div id="scr-playing" class="screen">
+  <div class="play-header">
+    <div style="display:flex;align-items:center;gap:14px">
+      <h1 class="t-title" style="font-size:1.4rem;color:var(--green)">BINGO</h1>
+      <span class="pill"><span class="pill-dot"></span>Live</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+      <span id="hdr-called" style="font-size:.82rem;color:#64748b"></span>
+      <span id="hdr-last" style="font-size:.88rem;font-weight:700;color:var(--green);min-width:100px;text-align:right"></span>
+    </div>
+  </div>
+
+  <div class="play-body">
+    <!-- LEFT: My Card -->
+    <div class="side-panel card card-green" style="animation:fadeUp .35s ease">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <p class="t-label" style="color:var(--green)">Your Card</p>
+        <div id="my-line-tracker" class="line-tracker"></div>
+      </div>
+      <div class="bg-letters" id="my-play-letters"></div>
+      <div class="bg-grid" id="my-play-grid"></div>
+      <div id="my-bingo-msg" style="display:none;margin-top:12px;text-align:center;font-family:'Syne',sans-serif;font-weight:700;font-size:1.1rem;color:var(--green);animation:glow 1s infinite">BINGO!</div>
+    </div>
+
+    <!-- CENTER: Draw Board -->
+    <div class="center-panel card" style="animation:fadeUp .4s .05s ease">
+      <p class="t-label" style="text-align:center;margin-bottom:4px">Draw Board</p>
+      <p style="text-align:center;color:#334155;font-size:.7rem;margin-bottom:14px">Click any number to call it for both players</p>
+      <div class="bg-letters" id="draw-letters"></div>
+      <div class="bg-grid" id="draw-grid"></div>
+      <div style="display:flex;justify-content:space-between;margin-top:12px;padding:10px 12px;
+        background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:10px;font-size:.8rem">
+        <span style="color:#475569">Called: <strong id="stat-called" style="color:#f1f5f9">0</strong></span>
+        <span style="color:#475569">Win: <strong style="color:var(--green)">3 lines</strong></span>
+        <span style="color:#475569">Left: <strong id="stat-left" style="color:#f1f5f9">25</strong></span>
+      </div>
+      <div class="prog-track" style="margin-top:8px">
+        <div class="prog-fill" id="play-prog" style="width:0%"></div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Opponent Card -->
+    <div class="side-panel card card-blue" style="animation:fadeUp .35s ease">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <p class="t-label" style="color:var(--blue)">Opponent</p>
+        <div id="opp-line-tracker" class="line-tracker"></div>
+      </div>
+      <div class="bg-letters" id="opp-play-letters"></div>
+      <div class="bg-grid" id="opp-play-grid"></div>
+      <p style="text-align:center;color:#334155;font-size:.7rem;margin-top:10px">Numbers hidden · ✓ = matched</p>
+      <div id="opp-bingo-msg" style="display:none;margin-top:12px;text-align:center;font-family:'Syne',sans-serif;font-weight:700;font-size:1.1rem;color:var(--blue)">BINGO!</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ GAME OVER ═════════════════════════════════════════════════ -->
+<div id="scr-gameover" class="screen">
+<div class="go-wrap">
+  <div id="go-icon" style="font-size:4rem;margin-bottom:16px"></div>
+  <h2 id="go-title" class="t-title" style="font-size:3rem;margin-bottom:10px"></h2>
+  <p id="go-sub" style="font-size:1rem;margin-bottom:6px"></p>
+  <p id="go-stat" style="color:#475569;font-size:.82rem;margin-bottom:24px"></p>
+
+  <!-- Rematch status bar (shows after clicking play again) -->
+  <div id="rematch-bar" class="rematch-bar" style="display:none;max-width:420px;margin:0 auto 20px">
+    <div class="rematch-avatar me" id="ra-me" title="You">You ✓</div>
+    <span style="color:#64748b;font-size:.8rem">waiting for opponent…</span>
+    <div class="rematch-avatar opp" id="ra-opp" title="Opponent">?</div>
+  </div>
+
+  <!-- Action buttons -->
+  <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-bottom:28px">
+    <button id="btn-play-again" class="btn-primary" style="padding:14px 36px;font-size:.95rem" onclick="requestPlayAgain()">
+      🔄 &nbsp;Play Again
+    </button>
+    <button class="btn-ghost" style="padding:14px 28px;font-size:.88rem" onclick="resetToLobby()">
+      Leave Game
+    </button>
+  </div>
+
+  <!-- Final cards -->
+  <div class="go-cards">
+    <div class="card card-green" style="padding:18px">
+      <p class="t-label" style="color:var(--green);margin-bottom:10px;text-align:center">Your Card</p>
+      <div class="bg-letters" id="go-my-letters"></div>
+      <div class="bg-grid" id="go-my-grid"></div>
+    </div>
+    <div class="card card-blue" style="padding:18px">
+      <p class="t-label" style="color:var(--blue);margin-bottom:10px;text-align:center">Opponent's Card</p>
+      <div class="bg-letters" id="go-opp-letters"></div>
+      <div class="bg-grid" id="go-opp-grid"></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════
+     JAVASCRIPT
+═════════════════════════════════════════════════════════════════ -->
+<script>
+const LETTERS = ['B','I','N','G','O'];
+const WIN_LINES = 3;
+const socket = io();
+
+/* ── State ─────────────────────────────────────────────────────── */
+let S = {
+  myId: null, myCard: mk5x5(), oppCard: null,
+  placed: new Set(), called: new Set(),
+  lastNum: null, myLines: 0, oppLines: 0,
+  phase: 'lobby', iWantRematch: false
+};
+
+function mk5x5(){ return Array.from({length:5},()=>Array(5).fill(0)); }
+
+/* ── Screen routing ────────────────────────────────────────────── */
+function show(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById('scr-'+id).classList.add('active');
+  S.phase = id;
+}
+
+/* ── Toast ─────────────────────────────────────────────────────── */
+let _tt;
+function toast(msg, type='ok', dur=3200){
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show' + (type==='err'?' err':type==='info'?' info':'');
+  clearTimeout(_tt);
+  _tt = setTimeout(()=> el.className = '', dur);
+}
+
+/* ── Bingo logic ───────────────────────────────────────────────── */
+function countLines(card, called){
+  if(!card) return 0;
+  if(card.flat().some(n=>n===0)) return 0;
+  const m = card.map(r=>r.map(n=>called.has(n)));
+  let c = 0;
+  for(let r=0;r<5;r++) if(m[r].every(Boolean)) c++;
+  for(let col=0;col<5;col++) if(m.every(r=>r[col])) c++;
+  if([0,1,2,3,4].every(i=>m[i][i])) c++;
+  if([0,1,2,3,4].every(i=>m[i][4-i])) c++;
+  return c;
+}
+function isWinCell(card, called, r, c){
+  if(!card || !called.has(card[r][c])) return false;
+  const m = card.map(row=>row.map(n=>called.has(n)));
+  return m[r].every(Boolean) || m.every(row=>row[c]) ||
+    (r===c&&[0,1,2,3,4].every(i=>m[i][i])) ||
+    (r+c===4&&[0,1,2,3,4].every(i=>m[i][4-i]));
+}
+
+/* ── Confetti ──────────────────────────────────────────────────── */
+function confetti(){
+  const cols=['#00ff88','#38bdf8','#ff6b6b','#fbbf24','#a78bfa','#f472b6'];
+  for(let i=0;i<50;i++){
+    const el=document.createElement('div');
+    const sz=Math.random()*10+4;
+    el.className='confetti-p';
+    el.style.cssText=`left:${Math.random()*100}%;width:${sz}px;height:${sz}px;background:${cols[i%cols.length]};border-radius:${Math.random()>.5?'50%':'2px'};animation-delay:${Math.random()*1.6}s`;
+    document.body.appendChild(el);
+    setTimeout(()=>el.remove(), 4500);
+  }
+}
+
+/* ── Render helpers ────────────────────────────────────────────── */
+function renderLetters(id){
+  document.getElementById(id).innerHTML =
+    LETTERS.map(l=>`<div class="bg-letter">${l}</div>`).join('');
+}
+
+/* ── Setup renders ─────────────────────────────────────────────── */
+function renderSetup(){
+  const g = document.getElementById('setup-grid');
+  g.innerHTML = '';
+  S.myCard.flat().forEach((n,i)=>{
+    const d = document.createElement('div');
+    d.className = 'bc '+(n?'filled':'empty');
+    d.textContent = n||'·';
+    if(n) d.onclick = ()=>removeNum(n);
+    g.appendChild(d);
+  });
+  const pct = (S.placed.size/25)*100;
+  document.getElementById('setup-prog').style.width = pct+'%';
+  document.getElementById('placed-txt').textContent = `${S.placed.size} / 25 placed`;
+  const btn = document.getElementById('btn-ready');
+  if(S.placed.size===25){
+    btn.disabled=false; btn.textContent='✓  Ready to Play!';
+  } else {
+    btn.disabled=true;
+    btn.textContent=`Place ${25-S.placed.size} more number${25-S.placed.size!==1?'s':''}…`;
+  }
+}
+
+function renderChips(){
+  const g = document.getElementById('chip-palette');
+  g.innerHTML = '';
+  for(let n=1;n<=25;n++){
+    const d = document.createElement('div');
+    d.className = 'chip'+(S.placed.has(n)?' placed':'');
+    d.textContent = n; d.onclick = ()=>toggleChip(n);
+    g.appendChild(d);
+  }
+}
+
+/* ── Playing renders ───────────────────────────────────────────── */
+function renderPlayGrid(gridId, card, mine){
+  const g = document.getElementById(gridId);
+  g.innerHTML = '';
+  if(!card){
+    for(let i=0;i<25;i++){
+      const d=document.createElement('div'); d.className='bc empty'; d.textContent='·'; g.appendChild(d);
+    }
+    return;
+  }
+  card.flat().forEach((n,i)=>{
+    const r=Math.floor(i/5), c=i%5;
+    const called = S.called.has(n);
+    const win = called && isWinCell(card, S.called, r, c);
+    const d = document.createElement('div');
+    if(win) d.className='bc win-cell';
+    else if(called) d.className='bc '+(mine?'called-me':'called-opp');
+    else if(n) d.className='bc normal-play';
+    else d.className='bc empty';
+    d.textContent = mine ? n : (called?'✓':'·');
+    g.appendChild(d);
+  });
+}
+
+function renderLinePips(trackerId, lines, isMe){
+  const t = document.getElementById(trackerId);
+  t.innerHTML = '';
+  for(let i=1;i<=WIN_LINES;i++){
+    const d=document.createElement('div');
+    d.className='line-pip'+(lines>=i?(isMe?' done':' done-opp'):'');
+    d.textContent=i; t.appendChild(d);
+  }
+}
+
+function renderDrawBoard(){
+  const g = document.getElementById('draw-grid');
+  g.innerHTML = '';
+  for(let n=1;n<=25;n++){
+    const d=document.createElement('div');
+    d.className='dc'+(S.called.has(n)?' drawn':'')+(n===S.lastNum?' last':'');
+    d.textContent=S.called.has(n)?'✕':n;
+    if(!S.called.has(n)) d.onclick=()=>callNum(n);
+    g.appendChild(d);
+  }
+  const c=S.called.size;
+  document.getElementById('hdr-called').textContent=`${c} / 25 drawn`;
+  document.getElementById('stat-called').textContent=c;
+  document.getElementById('stat-left').textContent=25-c;
+  document.getElementById('play-prog').style.width=(c/25*100)+'%';
+  document.getElementById('hdr-last').textContent=S.lastNum?`Last: ${S.lastNum}`:'';
+}
+
+function renderPlaying(){
+  renderPlayGrid('my-play-grid', S.myCard, true);
+  renderPlayGrid('opp-play-grid', S.oppCard, false);
+  renderLinePips('my-line-tracker', S.myLines, true);
+  renderLinePips('opp-line-tracker', S.oppLines, false);
+  renderDrawBoard();
+  document.getElementById('my-bingo-msg').style.display=(S.myLines>=WIN_LINES)?'block':'none';
+  document.getElementById('opp-bingo-msg').style.display=(S.oppLines>=WIN_LINES)?'block':'none';
+}
+
+/* ── Game Over render ──────────────────────────────────────────── */
+function renderGameOver(winnerId, myId, myCard, oppCard, called, myLines, oppLines){
+  const calledSet = new Set(called);
+  const iWon = winnerId === myId;
+
+  document.getElementById('go-icon').textContent = iWon?'🏆':'😔';
+  const t = document.getElementById('go-title');
+  t.textContent = iWon?'BINGO!':'Game Over';
+  t.style.color = iWon?'var(--green)':'#64748b';
+  t.style.animation = iWon?'glow 2s infinite':'';
+  document.getElementById('go-sub').textContent =
+    iWon?`🎉 You completed ${myLines} lines first!`:`Opponent finished ${oppLines} lines before you`;
+  document.getElementById('go-sub').style.color = iWon?'#e2e8f0':'#64748b';
+  document.getElementById('go-stat').textContent = `${called.length} of 25 numbers were called`;
+
+  // Reset rematch UI
+  S.iWantRematch = false;
+  document.getElementById('rematch-bar').style.display='none';
+  document.getElementById('btn-play-again').disabled=false;
+  document.getElementById('btn-play-again').textContent='🔄  Play Again';
+  document.getElementById('ra-opp').className='rematch-avatar opp';
+  document.getElementById('ra-opp').textContent='?';
+
+  if(iWon) confetti();
+
+  function drawFinal(gridId, letId, card, mine){
+    renderLetters(letId);
+    const g=document.getElementById(gridId); g.innerHTML='';
+    card.flat().forEach((n,i)=>{
+      const r=Math.floor(i/5), c=i%5;
+      const isCalled=calledSet.has(n);
+      const win=isCalled&&isWinCell(card,calledSet,r,c);
+      const d=document.createElement('div');
+      if(win) d.className='bc win-cell';
+      else if(isCalled) d.className='bc '+(mine?'called-me':'called-opp');
+      else if(n) d.className='bc normal-play';
+      else d.className='bc empty';
+      d.textContent=n||'·';
+      g.appendChild(d);
+    });
+  }
+  drawFinal('go-my-grid','go-my-letters',myCard,true);
+  drawFinal('go-opp-grid','go-opp-letters',oppCard,false);
+  show('gameover');
+}
+
+/* ── Rematch ───────────────────────────────────────────────────── */
+function requestPlayAgain(){
+  S.iWantRematch = true;
+  socket.emit('play_again');
+
+  // Show rematch bar + disable button
+  document.getElementById('btn-play-again').disabled=true;
+  document.getElementById('btn-play-again').textContent='Waiting for opponent…';
+  document.getElementById('rematch-bar').style.display='flex';
+  toast('Waiting for opponent to accept rematch…','info');
+}
+
+function startSetupForRematch(){
+  S.myCard = mk5x5(); S.placed = new Set();
+  S.called = new Set(); S.lastNum = null;
+  S.myLines = 0; S.oppLines = 0;
+  S.iWantRematch = false;
+  document.getElementById('setup-opp-status').innerHTML='';
+  renderLetters('setup-letters');
+  renderSetup(); renderChips();
+  show('setup');
+  toast('Rematch! Build your new card.');
+}
+
+/* ── Card interactions ─────────────────────────────────────────── */
+function toggleChip(n){
+  if(S.placed.has(n)) removeNum(n);
+  else{
+    if(S.placed.size>=25){ toast('Card full! Remove a number first.','err'); return; }
+    placeNum(n);
+  }
+}
+function placeNum(n){
+  for(let r=0;r<5;r++) for(let c=0;c<5;c++){
+    if(S.myCard[r][c]===0){ S.myCard[r][c]=n; S.placed.add(n); renderSetup(); renderChips(); return; }
+  }
+}
+function removeNum(n){
+  for(let r=0;r<5;r++) for(let c=0;c<5;c++){
+    if(S.myCard[r][c]===n){ S.myCard[r][c]=0; S.placed.delete(n); renderSetup(); renderChips(); return; }
+  }
+}
+function autoFill(){
+  const nums=Array.from({length:25},(_,i)=>i+1).sort(()=>Math.random()-.5);
+  S.myCard=Array.from({length:5},(_,r)=>nums.slice(r*5,r*5+5));
+  S.placed=new Set(nums); renderSetup(); renderChips();
+}
+function clearCard(){
+  S.myCard=mk5x5(); S.placed=new Set(); renderSetup(); renderChips();
+}
+function submitCard(){
+  if(S.placed.size<25) return;
+  socket.emit('submit_card',{card:S.myCard}); show('waiting');
+}
+function callNum(n){
+  if(S.called.has(n)) return;
+  socket.emit('call_number',{num:n});
+}
+
+/* ── Socket events ─────────────────────────────────────────────── */
+socket.on('connect', ()=>{ S.myId = socket.id; });
+
+socket.on('room_created', ({code})=>{
+  document.getElementById('display-code').textContent = code;
+  show('creating');
+});
+
+socket.on('room_joined', ()=> show('joining'));
+
+socket.on('both_connected', ()=>{
+  toast('Opponent connected! Build your card.');
+  S.myCard=mk5x5(); S.placed=new Set();
+  renderLetters('setup-letters'); renderSetup(); renderChips();
+  show('setup');
+});
+
+socket.on('waiting_for_opponent', ()=> show('waiting'));
+
+socket.on('opponent_ready', ()=>{
+  const el=document.getElementById('setup-opp-status');
+  if(el) el.innerHTML='<span style="color:var(--green);font-weight:600">✓ Opponent is ready!</span>';
+  toast('Opponent is ready! Finish your card.');
+});
+
+socket.on('game_start', ({myCard, oppCard, called, myId})=>{
+  S.myId=myId||socket.id; S.myCard=myCard; S.oppCard=oppCard;
+  S.called=new Set(called); S.lastNum=null; S.myLines=0; S.oppLines=0;
+  renderLetters('my-play-letters'); renderLetters('opp-play-letters'); renderLetters('draw-letters');
+  renderPlaying(); show('playing');
+  toast('✦ Game started! Click a number on the draw board.');
+});
+
+socket.on('number_called', ({num, called, myLines=0, oppLines=0})=>{
+  S.called=new Set(called); S.lastNum=num; S.myLines=myLines; S.oppLines=oppLines;
+  renderPlaying();
+  toast(`Number ${num} called!`);
+});
+
+socket.on('game_over', ({winnerId, myId, myCard, oppCard, called, myLines, oppLines})=>{
+  S.myId=myId||socket.id;
+  renderGameOver(winnerId, myId, myCard, oppCard, called, myLines, oppLines);
+});
+
+// Opponent clicked Play Again on their side
+socket.on('opponent_wants_rematch', ()=>{
+  if(S.phase==='gameover'){
+    // Update the opp avatar in rematch bar
+    document.getElementById('ra-opp').className='rematch-avatar opp ready';
+    document.getElementById('ra-opp').textContent='✓';
+    toast('🔄 Opponent wants a rematch!','info');
+  }
+});
+
+// Both clicked — server confirmed rematch, go to setup
+socket.on('rematch_start', ()=>{
+  startSetupForRematch();
+});
+
+socket.on('opponent_disconnected', ()=>{
+  toast('Opponent disconnected. Returning to lobby…','err',4000);
+  setTimeout(resetToLobby, 2500);
+});
+
+socket.on('opponent_left_after_game', ()=>{
+  toast('Opponent left the game.','err',4000);
+  setTimeout(resetToLobby, 2500);
+});
+
+socket.on('error', ({msg})=>{
+  toast('⚠ '+msg,'err',4000);
+  const errEl=document.getElementById('lobby-err');
+  if(['lobby','creating','joining'].includes(S.phase)){
+    if(errEl){ errEl.textContent=msg; errEl.style.display='block';
+      setTimeout(()=>errEl.style.display='none',5000); }
+    resetToLobby();
+  }
+});
+
+/* ── Lobby wiring ──────────────────────────────────────────────── */
+document.getElementById('btn-create').onclick = ()=> socket.emit('create_room');
+
+const joinInput = document.getElementById('join-code');
+const joinBtn   = document.getElementById('btn-join');
+
+joinInput.addEventListener('input', ()=>{
+  const v = joinInput.value.replace(/[^A-Za-z0-9]/g,'').toUpperCase();
+  joinInput.value = v; joinBtn.disabled = v.length < 5;
+});
+joinInput.addEventListener('keydown', e=>{
+  if(e.key==='Enter' && joinInput.value.length>=5) joinBtn.click();
+});
+joinBtn.onclick = ()=>{
+  const c=joinInput.value.trim();
+  if(c.length>=5) socket.emit('join_room',{code:c});
+};
+
+function resetToLobby(){
+  S = {
+    myId: socket.id, myCard: mk5x5(), oppCard: null,
+    placed: new Set(), called: new Set(),
+    lastNum: null, myLines: 0, oppLines: 0,
+    phase: 'lobby', iWantRematch: false
+  };
+  joinInput.value=''; joinBtn.disabled=true;
+  show('lobby');
+}
+</script>
+</body>
+</html>
